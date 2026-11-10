@@ -1,0 +1,23 @@
+{
+  "profiles": [
+    { "id": "jiejie", "name": "姐姐", "grade": 5, "level": "A2" },
+    { "id": "meimei", "name": "妹妹", "grade": 3, "level": "pre-A1" }
+  ],
+  "weekly": [
+    { "no": 1, "en": "I'll see what I can do.", "zh": "讓我看看我能做些什麼？" },
+    { "no": 2, "en": "Could you do me a favor?", "zh": "你能幫我嗎？" },
+    { "no": 3, "en": "I got your back.", "zh": "我會支持你" },
+    { "no": 4, "en": "We have a lot in common.", "zh": "我們有很多共同點" },
+    { "no": 5, "en": "I'm gonna change.", "zh": "我要去換掉" },
+    { "no": 6, "en": "I got stuck.", "zh": "我困住了" },
+    { "no": 7, "en": "Stay humble.", "zh": "保持謙虛" },
+    { "no": 8, "en": "Be fair to others.", "zh": "對別人要公平" },
+    { "no": 9, "en": "Do the right thing.", "zh": "要做對的事" }
+  ],
+  "currentWeekly": [7, 8, 9],
+  "pk": { "date": "2026-11-11", "range": [1, 6] },
+  "textbook": {
+    "jiejie": { "publisher": "TBD", "units": [] },
+    "meimei": { "publisher": "TBD", "units": [] }
+  }
+}

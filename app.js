@@ -1,0 +1,712 @@
+'use strict';
+
+/* ================= 基本設定 ================= */
+const GROQ = 'https://api.groq.com/openai/v1';
+const STT_MODEL = 'whisper-large-v3-turbo';
+const LLM_MODEL = 'openai/gpt-oss-120b';
+const PK_SECONDS = 15;
+
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const today = () => new Date().toLocaleDateString('sv'); // YYYY-MM-DD
+
+// 用 #key=gsk_xxx 一次性匯入 key（hash 不會送到伺服器），匯入後立刻從網址移除
+(() => {
+  const m = location.hash.match(/key=([^&]+)/);
+  if (m) {
+    localStorage.setItem('groq_key', decodeURIComponent(m[1]).trim());
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+})();
+
+const store = {
+  get key() {
+    return localStorage.getItem('groq_key') || '';
+  },
+  set key(v) {
+    localStorage.setItem('groq_key', v);
+  },
+  json(k, def) {
+    try {
+      return JSON.parse(localStorage.getItem(k)) ?? def;
+    } catch {
+      return def;
+    }
+  },
+  save(k, v) {
+    localStorage.setItem(k, JSON.stringify(v));
+  },
+};
+
+let DATA = null;
+let profile = null;
+let selected = new Set();
+
+/* ================= 語音合成 TTS ================= */
+let voices = [];
+function loadVoices() {
+  voices = speechSynthesis.getVoices();
+  fillVoiceSelect();
+}
+speechSynthesis.onvoiceschanged = loadVoices;
+loadVoices();
+
+function enVoice() {
+  const en = voices.filter((v) => /^en[-_]/i.test(v.lang));
+  const saved = en.find((v) => v.name === localStorage.getItem('voice'));
+  if (saved) return saved;
+  const prefs = [/Ava/i, /Samantha/i, /Natural/i, /Enhanced|Premium/i, /Google US/i];
+  for (const r of prefs) {
+    const v = en.find((x) => r.test(x.name) && /en[-_]US/i.test(x.lang));
+    if (v) return v;
+  }
+  return en.find((x) => /en[-_]US/i.test(x.lang)) || en[0] || null;
+}
+function zhVoice() {
+  return (
+    voices.find((v) => /zh[-_](TW|Hant)/i.test(v.lang)) ||
+    voices.find((v) => /^zh/i.test(v.lang)) ||
+    null
+  );
+}
+
+const robot = $('#robot');
+function setRobot(state) {
+  robot.className = 'robot ' + (state || '');
+}
+
+function speak(text, { lang = 'en', rate } = {}) {
+  return new Promise((resolve) => {
+    if (!text) return resolve();
+    const u = new SpeechSynthesisUtterance(text);
+    const v = lang === 'en' ? enVoice() : zhVoice();
+    if (v) u.voice = v;
+    u.lang = lang === 'en' ? v?.lang || 'en-US' : v?.lang || 'zh-TW';
+    u.rate = rate ?? (lang === 'en' ? profile.rate : 1);
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      setRobot('');
+      resolve();
+    };
+    u.onend = finish;
+    u.onerror = finish;
+    // iOS 有時不觸發 onend，保險計時
+    setTimeout(finish, text.length * 160 + 2500);
+    setRobot('talking');
+    speechSynthesis.speak(u);
+  });
+}
+function say(en, zh) {
+  $('#sayEn').textContent = en || '';
+  $('#sayZh').textContent = zh || '';
+}
+function stopSpeaking() {
+  speechSynthesis.cancel();
+  setRobot('');
+}
+
+/* ================= 錄音 + Whisper ================= */
+let micStream = null;
+let recorder = null;
+let chunks = [];
+let recStart = 0;
+
+async function ensureMic() {
+  if (!micStream) {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true },
+    });
+  }
+  return micStream;
+}
+function pickMime() {
+  for (const m of ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg']) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return '';
+}
+async function startRec() {
+  await ensureMic();
+  chunks = [];
+  const mime = pickMime();
+  recorder = new MediaRecorder(micStream, mime ? { mimeType: mime } : {});
+  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  recorder.start();
+  recStart = Date.now();
+}
+function stopRec() {
+  return new Promise((resolve) => {
+    if (!recorder || recorder.state === 'inactive') return resolve(null);
+    recorder.onstop = () => {
+      const type = recorder.mimeType || 'audio/mp4';
+      resolve({ blob: new Blob(chunks, { type }), ms: Date.now() - recStart });
+    };
+    recorder.stop();
+  });
+}
+async function transcribe(blob) {
+  const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+  const fd = new FormData();
+  fd.append('file', blob, 'speech.' + ext);
+  fd.append('model', STT_MODEL);
+  fd.append('language', 'en');
+  fd.append('temperature', '0');
+  fd.append('response_format', 'json');
+  const r = await fetch(GROQ + '/audio/transcriptions', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + store.key },
+    body: fd,
+  });
+  if (!r.ok) throw new Error('語音辨識失敗 ' + r.status + '：' + (await r.text()).slice(0, 120));
+  return ((await r.json()).text || '').trim();
+}
+
+/* ================= 逐字比對 ================= */
+const EXPAND = {
+  "i'll": 'i will',
+  "i'm": 'i am',
+  "i've": 'i have',
+  "i'd": 'i would',
+  "you're": 'you are',
+  "we're": 'we are',
+  "they're": 'they are',
+  "it's": 'it is',
+  "that's": 'that is',
+  "what's": 'what is',
+  "let's": 'let us',
+  "don't": 'do not',
+  "doesn't": 'does not',
+  "can't": 'can not',
+  cannot: 'can not',
+  "won't": 'will not',
+  "isn't": 'is not',
+  gonna: 'going to',
+  wanna: 'want to',
+  gotta: 'got to',
+  favour: 'favor',
+  ok: 'okay',
+};
+function norm(s) {
+  return s
+    .toLowerCase()
+    .replace(/[’‘`]/g, "'")
+    .replace(/[^a-z' ]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .flatMap((w) => (EXPAND[w] || w).split(' '))
+    .map((w) => w.replace(/'/g, ''))
+    .filter(Boolean);
+}
+// 以目標句為準做 LCS，回傳每個目標字是否念到
+function compare(target, heard) {
+  const tokens = target.split(/\s+/);
+  const flat = [];
+  tokens.forEach((tok, i) => norm(tok).forEach((w) => flat.push({ w, i })));
+  const h = norm(heard);
+  const n = flat.length;
+  const m = h.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let a = n - 1; a >= 0; a--)
+    for (let b = m - 1; b >= 0; b--)
+      dp[a][b] = flat[a].w === h[b] ? dp[a + 1][b + 1] + 1 : Math.max(dp[a + 1][b], dp[a][b + 1]);
+  const ok = new Array(n).fill(false);
+  let a = 0;
+  let b = 0;
+  while (a < n && b < m) {
+    if (flat[a].w === h[b]) {
+      ok[a++] = true;
+      b++;
+    } else if (dp[a + 1][b] >= dp[a][b + 1]) a++;
+    else b++;
+  }
+  const tokOk = tokens.map((_, i) => flat.every((f, k) => f.i !== i || ok[k]));
+  const matched = ok.filter(Boolean).length;
+  return {
+    tokens,
+    tokOk,
+    missed: tokens.filter((_, i) => !tokOk[i]).map((w) => w.replace(/[^A-Za-z']/g, '')),
+    score: Math.round((100 * matched) / Math.max(n, 1)),
+    pass: matched === n,
+  };
+}
+
+/* ================= AI 小提示（念錯時） ================= */
+async function aiTip(target, heard, missed) {
+  const body = {
+    model: LLM_MODEL,
+    reasoning_effort: 'low',
+    response_format: { type: 'json_object' },
+    max_completion_tokens: 600,
+    messages: [
+      {
+        role: 'system',
+        content: `你是溫柔的英語發音老師，學生是台灣國小${profile.grade}年級。用繁體中文（台灣用語）給一個發音或用法小提示，最多 50 字，語氣鼓勵。只回 JSON：{"tip_zh":"..."}`,
+      },
+      {
+        role: 'user',
+        content: `目標句：${target}\n學生念成（語音辨識結果）：${heard || '(沒聽到)'}\n沒念對的字：${missed.join(', ')}`,
+      },
+    ],
+  };
+  const r = await fetch(GROQ + '/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + store.key, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) return '';
+  const j = await r.json();
+  try {
+    return JSON.parse(j.choices[0].message.content).tip_zh || '';
+  } catch {
+    return '';
+  }
+}
+
+/* ================= 首頁 ================= */
+function show(id) {
+  $$('.screen').forEach((s) => s.classList.toggle('active', s.id === id));
+}
+
+function renderProfiles() {
+  const box = $('#profiles');
+  box.innerHTML = '';
+  DATA.profiles.forEach((p) => {
+    const b = document.createElement('button');
+    b.className = 'profile' + (profile?.id === p.id ? ' on' : '');
+    b.innerHTML = `${p.grade <= 3 ? '🧒' : '👧'} ${p.name}<small>${p.grade} 年級</small>`;
+    b.onclick = () => {
+      setProfile(p.id);
+      renderProfiles();
+      renderChips();
+    };
+    box.appendChild(b);
+  });
+}
+function setProfile(id) {
+  const p = DATA.profiles.find((x) => x.id === id) || DATA.profiles[0];
+  profile = { ...p, rate: p.grade <= 3 ? 0.75 : 0.9 };
+  localStorage.setItem('profile', profile.id);
+  $('#who').textContent = profile.name;
+  updateClock();
+}
+function stats() {
+  return store.json('stats_' + profile.id, {});
+}
+function renderChips() {
+  const box = $('#chips');
+  box.innerHTML = '';
+  const st = stats();
+  DATA.weekly.forEach((s) => {
+    const b = document.createElement('button');
+    b.className = 'chip' + (selected.has(s.no) ? ' on' : '');
+    const r = st[s.no];
+    const badge = !r ? '' : r.lastFirstTry ? '⭐' : '⚠️';
+    b.innerHTML = `<i>${badge}</i><b>${s.no}. ${s.en}</b><span>${s.zh}</span>`;
+    b.onclick = () => {
+      selected.has(s.no) ? selected.delete(s.no) : selected.add(s.no);
+      store.save('sel', [...selected]);
+      renderChips();
+    };
+    box.appendChild(b);
+  });
+}
+function pickPreset(kind) {
+  const all = DATA.weekly.map((s) => s.no);
+  if (kind === 'all') selected = new Set(all);
+  if (kind === 'current') selected = new Set(DATA.currentWeekly);
+  if (kind === 'pk') {
+    const [a, b] = DATA.pk.range;
+    selected = new Set(all.filter((n) => n >= a && n <= b));
+  }
+  store.save('sel', [...selected]);
+  renderChips();
+}
+
+/* ================= 計時（每人每天累計） ================= */
+function timeKey() {
+  return `time_${profile.id}_${today()}`;
+}
+function updateClock() {
+  const s = +localStorage.getItem(timeKey()) || 0;
+  $('#clock').textContent = `⏱ ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+setInterval(() => {
+  if (!profile || !$('#practice').classList.contains('active')) return;
+  localStorage.setItem(timeKey(), (+localStorage.getItem(timeKey()) || 0) + 1);
+  updateClock();
+}, 1000);
+
+/* ================= 練習流程 ================= */
+const S = {
+  mode: 'repeat',
+  queue: [],
+  idx: 0,
+  tries: 0,
+  results: [],
+  busy: false,
+  hintShown: false,
+  timerId: null,
+  timeLeft: 0,
+};
+const cur = () => S.queue[S.idx];
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+async function startSession(mode, list) {
+  if (!store.key) {
+    alert('請先按右上角 ⚙️ 設定 Groq Key');
+    return;
+  }
+  const items = list || DATA.weekly.filter((s) => selected.has(s.no));
+  if (!items.length) {
+    alert('請至少選一句');
+    return;
+  }
+  // iOS：必須在點擊當下解鎖語音與麥克風
+  speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+  try {
+    await ensureMic();
+  } catch (e) {
+    alert('需要麥克風權限才能練習喔！\n' + e.message);
+    return;
+  }
+  S.mode = mode;
+  S.queue = mode === 'repeat' ? [...items] : shuffle([...items]);
+  S.idx = 0;
+  S.results = [];
+  show('practice');
+  $('#timer').classList.toggle('hidden', mode !== 'pk');
+  $('#btnSkip').classList.toggle('hidden', mode === 'pk');
+  say(
+    mode === 'pk' ? "PK time! Let's go!" : "Hi! Let's practice!",
+    mode === 'pk' ? 'PK 挑戰開始！看中文說英文，每題有兩次機會。' : '我們來練習吧！'
+  );
+  await speak(mode === 'pk' ? "PK time! Let's go!" : "Hi! Let's practice!");
+  runQuestion();
+}
+
+function maskOf(en) {
+  return en
+    .split(/\s+/)
+    .map((w) => w.replace(/[A-Za-z]/g, '_'))
+    .join('  ');
+}
+function hintOf(en) {
+  return en
+    .split(/\s+/)
+    .map((w) => w.replace(/([A-Za-z])([A-Za-z']*)/, (_, f, r) => f + r.replace(/[A-Za-z]/g, '_')))
+    .join('  ');
+}
+
+function renderTarget(res) {
+  const t = $('#target');
+  const q = cur();
+  const reveal = S.mode === 'repeat' || res;
+  t.classList.toggle('masked', !reveal);
+  if (!reveal) {
+    t.textContent = maskOf(q.en);
+    return;
+  }
+  if (!res) {
+    t.textContent = q.en;
+    return;
+  }
+  t.innerHTML = res.tokens
+    .map((w, i) => `<span class="w ${res.tokOk[i] ? 'ok' : 'bad'}">${w}</span>`)
+    .join('');
+}
+
+async function runQuestion() {
+  const q = cur();
+  S.tries = 0;
+  S.hintShown = false;
+  clearTimer();
+  $('#bar').style.width = `${(S.idx / S.queue.length) * 100}%`;
+  $('#qno').textContent = `第 ${S.idx + 1} / ${S.queue.length} 題（每周一句 #${q.no}）`;
+  $('#targetZh').textContent = q.zh;
+  $('#hint').textContent = '';
+  $('#heard').textContent = '';
+  $('#tip').textContent = '';
+  renderTarget(null);
+  setMic(false);
+
+  if (S.mode === 'repeat') {
+    say(q.en, q.zh);
+    await speak(q.en);
+    await sleep(200);
+    say('Your turn!', '換你念！按住麥克風說話');
+  } else {
+    if (profile.grade <= 3) showHint();
+    say('How do you say it in English?', `「${q.zh}」英文怎麼說？`);
+    await speak(q.zh, { lang: 'zh' });
+    if (S.mode === 'pk') startTimer();
+  }
+  setMic(true);
+}
+
+function showHint() {
+  S.hintShown = true;
+  $('#hint').textContent = hintOf(cur().en);
+}
+
+function startTimer() {
+  S.timeLeft = PK_SECONDS;
+  $('#timer').textContent = `⏳ ${S.timeLeft}`;
+  S.timerId = setInterval(() => {
+    S.timeLeft--;
+    $('#timer').textContent = S.timeLeft > 0 ? `⏳ ${S.timeLeft}` : '⏰ 時間到（分數減半）';
+    if (S.timeLeft <= 0) clearInterval(S.timerId);
+  }, 1000);
+}
+function clearTimer() {
+  clearInterval(S.timerId);
+  S.timerId = null;
+}
+
+function setMic(on, label) {
+  $('#mic').disabled = !on;
+  $('#micLabel').textContent = label || (on ? '按住說話' : '請等一下');
+}
+
+async function handleSpeech(rec) {
+  const q = cur();
+  if (!rec || rec.ms < 500) {
+    say('Hold the button a little longer.', '要按住麥克風，說完再放開喔！');
+    setMic(true);
+    return;
+  }
+  setMic(false, '聽聽看…');
+  setRobot('thinking');
+  let heard = '';
+  try {
+    heard = await transcribe(rec.blob);
+  } catch (e) {
+    setRobot('');
+    say('Oops!', e.message);
+    setMic(true);
+    return;
+  }
+  setRobot('');
+  S.tries++;
+  const res = compare(q.en, heard);
+  renderTarget(res);
+  $('#heard').textContent = `🎧 我聽到：${heard || '（沒聽到聲音）'}`;
+
+  if (res.pass) {
+    clearTimer();
+    setRobot('happy');
+    const praise = S.tries === 1 ? ['Perfect!', '完美！一次就念對！'] : ['Great job!', '很棒！這次念對了！'];
+    say(...praise);
+    await speak(praise[0]);
+    record(q, true);
+    await sleep(600);
+    return next();
+  }
+
+  // 念錯
+  setRobot('sad');
+  $('#tip').textContent = '';
+  aiTip(q.en, heard, res.missed).then((t) => t && ($('#tip').textContent = '💡 ' + t));
+
+  const pkOut = S.mode === 'pk' && S.tries >= 2;
+  if (pkOut) {
+    clearTimer();
+    say(q.en, `正確答案是這樣，下次加油！`);
+    await speak(q.en, { rate: profile.rate * 0.85 });
+    record(q, false);
+    await sleep(2500); // 留時間看提示
+    return next();
+  }
+
+  const red = res.missed.length && res.missed.length < res.tokens.length;
+  say(q.en, red ? `差一點！注意紅色的字：${res.missed.join('、')}。聽我念，再念一次。` : '聽我念一次，再跟著念。');
+  await speak(red ? '差一點，注意紅色的字。' : '聽我念一次。', { lang: 'zh' });
+  await speak(q.en, { rate: profile.rate * 0.8 });
+  say('Try again!', '換你再念一次！');
+  if (S.tries >= 3) $('#btnSkip').classList.add('primary');
+  setMic(true);
+}
+
+function record(q, pass) {
+  const firstTry = pass && S.tries === 1;
+  const inTime = S.mode !== 'pk' || S.timeLeft > 0;
+  const pts = !pass ? 0 : Math.round((firstTry ? 10 : 5) * (inTime ? 1 : 0.5));
+  S.results.push({ q, pass, tries: S.tries, firstTry, pts });
+  const st = stats();
+  const r = st[q.no] || { tries: 0, pass: 0 };
+  r.tries += S.tries;
+  r.pass += pass ? 1 : 0;
+  r.lastFirstTry = firstTry;
+  r.last = today();
+  st[q.no] = r;
+  store.save('stats_' + profile.id, st);
+}
+
+function next() {
+  $('#btnSkip').classList.remove('primary');
+  S.idx++;
+  if (S.idx >= S.queue.length) return finish();
+  runQuestion();
+}
+
+async function finish() {
+  clearTimer();
+  stopSpeaking();
+  $('#bar').style.width = '100%';
+  const R = S.results;
+  const first = R.filter((r) => r.firstTry).length;
+  const pts = R.reduce((a, r) => a + r.pts, 0);
+  const max = R.length * 10;
+  const ratio = max ? pts / max : 0;
+  const stars = ratio >= 0.9 ? 3 : ratio >= 0.6 ? 2 : 1;
+  $('#resTitle').textContent = S.mode === 'pk' ? '🏆 PK 結果' : '🎉 練習完成！';
+  $('#stars').textContent = '⭐'.repeat(stars) + '☆'.repeat(3 - stars);
+  $('#resScore').textContent =
+    S.mode === 'pk' ? `${pts} / ${max} 分・一次答對 ${first} 題` : `一次念對 ${first} / ${R.length} 句`;
+  $('#resList').innerHTML = R.map(
+    (r) =>
+      `<li><span>${r.firstTry ? '✅' : r.pass ? '🟡' : '❌'} ${r.q.en}<br><small>${r.q.zh}</small></span><small>${
+        r.pass ? `${r.tries} 次` : '再練練'
+      }</small></li>`
+  ).join('');
+  $('#btnRetryWrong').classList.toggle('hidden', R.every((r) => r.firstTry));
+  if (S.mode === 'pk') {
+    const best = store.json('pkbest_' + profile.id, 0);
+    if (pts > best) store.save('pkbest_' + profile.id, pts);
+  }
+  show('result');
+  speak(stars === 3 ? 'Awesome! You are a star!' : 'Good work! Keep practicing!');
+}
+
+/* ================= 麥克風按鈕（按住說話） ================= */
+const mic = $('#mic');
+let holding = false;
+mic.addEventListener('pointerdown', async (e) => {
+  if (mic.disabled) return;
+  e.preventDefault();
+  mic.setPointerCapture(e.pointerId);
+  holding = true;
+  stopSpeaking();
+  try {
+    await startRec();
+  } catch (err) {
+    holding = false;
+    alert('麥克風無法使用：' + err.message);
+    return;
+  }
+  if (!holding) return endHold(); // 太快放開
+  mic.classList.add('rec');
+  setRobot('listening');
+  $('#micLabel').textContent = '說完放開';
+});
+async function endHold() {
+  if (!recorder || recorder.state === 'inactive') return;
+  holding = false;
+  mic.classList.remove('rec');
+  setRobot('');
+  handleSpeech(await stopRec());
+}
+mic.addEventListener('pointerup', () => {
+  holding = false;
+  endHold();
+});
+mic.addEventListener('pointercancel', () => {
+  holding = false;
+  endHold();
+});
+mic.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* ================= 按鈕 ================= */
+// 中翻英/PK 還沒作答前，「再聽」只念中文題目，不洩漏答案
+const answerHidden = () => S.mode !== 'repeat' && !S.tries;
+$('#btnListen').onclick = () => {
+  if (answerHidden()) return speak(cur().zh, { lang: 'zh' });
+  say(cur().en, cur().zh);
+  speak(cur().en);
+};
+$('#btnSlow').onclick = () => {
+  if (answerHidden()) return speak(cur().zh, { lang: 'zh', rate: 0.7 });
+  speak(cur().en, { rate: profile.rate * 0.6 });
+};
+$('#btnHint').onclick = showHint;
+$('#btnSkip').onclick = () => {
+  stopSpeaking();
+  if (S.mode === 'pk') return;
+  record(cur(), false);
+  next();
+};
+$('#btnQuit').onclick = () => {
+  clearTimer();
+  stopSpeaking();
+  show('home');
+  renderChips();
+};
+$('#btnHome').onclick = () => {
+  show('home');
+  renderChips();
+};
+$('#btnRetryWrong').onclick = () =>
+  startSession(
+    S.mode,
+    S.results.filter((r) => !r.firstTry).map((r) => r.q)
+  );
+$$('.mode').forEach((b) => (b.onclick = () => startSession(b.dataset.mode)));
+$$('[data-pick]').forEach((b) => (b.onclick = () => pickPreset(b.dataset.pick)));
+
+/* ================= 設定 ================= */
+function fillVoiceSelect() {
+  const sel = $('#inVoice');
+  if (!sel) return;
+  const en = voices.filter((v) => /^en[-_]/i.test(v.lang));
+  const curV = enVoice();
+  sel.innerHTML = en
+    .map((v) => `<option value="${v.name}" ${curV?.name === v.name ? 'selected' : ''}>${v.name} (${v.lang})</option>`)
+    .join('');
+}
+$('#btnSettings').onclick = () => {
+  $('#inKey').value = store.key;
+  $('#keyStatus').textContent = store.key ? '已設定' : '未設定';
+  fillVoiceSelect();
+  $('#settings').showModal();
+};
+$('#btnTestKey').onclick = async () => {
+  const k = $('#inKey').value.replace(/\\/g, '').trim();
+  $('#keyStatus').textContent = '測試中…';
+  try {
+    const r = await fetch(GROQ + '/models', { headers: { Authorization: 'Bearer ' + k } });
+    $('#keyStatus').textContent = r.ok ? '✅ 可以用' : `❌ 失敗 (${r.status})`;
+  } catch (e) {
+    $('#keyStatus').textContent = '❌ ' + e.message;
+  }
+};
+$('#btnTestVoice').onclick = () => {
+  localStorage.setItem('voice', $('#inVoice').value);
+  speak('Could you do me a favor?', { rate: profile?.rate ?? 0.9 });
+};
+$('#settings').addEventListener('close', () => {
+  if ($('#settings').returnValue !== 'save') return;
+  store.key = $('#inKey').value.replace(/\\/g, '').trim();
+  if ($('#inVoice').value) localStorage.setItem('voice', $('#inVoice').value);
+  $('#keyWarn').classList.toggle('hidden', !!store.key);
+});
+
+/* ================= 啟動 ================= */
+(async function init() {
+  DATA = await (await fetch('lessons.json', { cache: 'no-cache' })).json();
+  setProfile(localStorage.getItem('profile') || DATA.profiles[0].id);
+  const saved = store.json('sel', null);
+  if (saved?.length) selected = new Set(saved);
+  else pickPreset(DATA.pk && DATA.pk.date >= today() ? 'pk' : 'current');
+  renderProfiles();
+  renderChips();
+  $('#keyWarn').classList.toggle('hidden', !!store.key);
+})();

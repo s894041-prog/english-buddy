@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="英語小幫手" />
+    <meta name="theme-color" content="#4f7cff" />
+    <title>英語小幫手 English Buddy</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">🤖 English Buddy</div>
+      <div class="hdr-right">
+        <span id="who" class="pill"></span>
+        <span id="clock" class="pill">⏱ 0:00</span>
+        <button id="btnSettings" class="icon" aria-label="設定">⚙️</button>
+      </div>
+    </header>
+
+    <!-- 首頁 -->
+    <section id="home" class="screen active">
+      <h2>誰要練習？</h2>
+      <div id="profiles" class="row"></div>
+
+      <h2>選句子 <small>（點一下切換）</small></h2>
+      <div id="chips" class="chips"></div>
+      <div class="row small">
+        <button class="ghost" data-pick="pk">PK 範圍</button>
+        <button class="ghost" data-pick="current">本週</button>
+        <button class="ghost" data-pick="all">全選</button>
+      </div>
+
+      <h2>練習模式</h2>
+      <div class="modes">
+        <button class="mode" data-mode="repeat">
+          <b>🔁 跟我念</b><span>聽機器人念，再跟著念</span>
+        </button>
+        <button class="mode" data-mode="zh2en">
+          <b>🧠 中翻英</b><span>看中文，說出英文</span>
+        </button>
+        <button class="mode hot" data-mode="pk">
+          <b>🏆 PK 挑戰</b><span>隨機出題・限時・計分</span>
+        </button>
+      </div>
+      <p id="keyWarn" class="warn hidden">⚠️ 還沒設定 Groq Key，請按右上角 ⚙️</p>
+    </section>
+
+    <!-- 練習 -->
+    <section id="practice" class="screen">
+      <div class="progress"><div id="bar"></div></div>
+      <div class="stage">
+        <div id="robot" class="robot">
+          <svg viewBox="0 0 200 220" aria-hidden="true">
+            <line x1="100" y1="30" x2="100" y2="8" stroke="#5b6b8c" stroke-width="5" />
+            <circle id="antenna" cx="100" cy="8" r="8" fill="#ffcc33" />
+            <rect x="35" y="30" width="130" height="110" rx="34" fill="#e8eeff" stroke="#5b6b8c" stroke-width="5" />
+            <rect x="15" y="65" width="20" height="40" rx="8" fill="#9fb4ff" />
+            <rect x="165" y="65" width="20" height="40" rx="8" fill="#9fb4ff" />
+            <g class="eyes">
+              <ellipse cx="75" cy="78" rx="12" ry="14" fill="#25324d" />
+              <ellipse cx="125" cy="78" rx="12" ry="14" fill="#25324d" />
+              <circle cx="79" cy="73" r="4" fill="#fff" />
+              <circle cx="129" cy="73" r="4" fill="#fff" />
+            </g>
+            <ellipse cx="58" cy="102" rx="9" ry="5" fill="#ffb3c1" />
+            <ellipse cx="142" cy="102" rx="9" ry="5" fill="#ffb3c1" />
+            <ellipse id="mouth" cx="100" cy="112" rx="18" ry="6" fill="#25324d" />
+            <rect x="55" y="145" width="90" height="60" rx="20" fill="#9fb4ff" stroke="#5b6b8c" stroke-width="5" />
+            <circle cx="100" cy="175" r="10" fill="#ffcc33" />
+          </svg>
+        </div>
+        <div class="bubble">
+          <div id="sayEn" class="en"></div>
+          <div id="sayZh" class="zh"></div>
+        </div>
+      </div>
+
+      <div id="card" class="card">
+        <div class="qno" id="qno"></div>
+        <div id="target" class="target"></div>
+        <div id="targetZh" class="target-zh"></div>
+        <div id="hint" class="hint"></div>
+        <div id="heard" class="heard"></div>
+        <div id="tip" class="tip"></div>
+      </div>
+
+      <div class="controls">
+        <button id="btnListen" class="ghost">🔊 再聽</button>
+        <button id="btnSlow" class="ghost">🐢 慢速</button>
+        <button id="btnHint" class="ghost">💡 提示</button>
+        <button id="btnSkip" class="ghost">⏭ 跳過</button>
+      </div>
+
+      <div class="mic-wrap">
+        <div id="timer" class="timer hidden"></div>
+        <button id="mic" class="mic" aria-label="按住說話">
+          <span class="mic-icon">🎤</span>
+          <span id="micLabel">按住說話</span>
+        </button>
+      </div>
+      <button id="btnQuit" class="link">← 回首頁</button>
+    </section>
+
+    <!-- 結果 -->
+    <section id="result" class="screen">
+      <h2 id="resTitle"></h2>
+      <div id="stars" class="stars"></div>
+      <div id="resScore" class="res-score"></div>
+      <ul id="resList" class="res-list"></ul>
+      <div class="row">
+        <button id="btnRetryWrong" class="primary">再練錯的</button>
+        <button id="btnHome" class="ghost">回首頁</button>
+      </div>
+    </section>
+
+    <!-- 設定 -->
+    <dialog id="settings">
+      <form method="dialog">
+        <h3>⚙️ 設定</h3>
+        <label>Groq API Key
+          <input id="inKey" type="password" placeholder="gsk_..." autocomplete="off" />
+        </label>
+        <div class="row small">
+          <button type="button" id="btnTestKey" class="ghost">測試 Key</button>
+          <span id="keyStatus"></span>
+        </div>
+        <label>英文語音
+          <select id="inVoice"></select>
+        </label>
+        <div class="row small">
+          <button type="button" id="btnTestVoice" class="ghost">試聽</button>
+        </div>
+        <p class="note">
+          iPad 想要更自然的聲音：設定 › 輔助使用 › 朗讀內容 › 聲音 › 英文 › 下載「Ava（加強版）」後重開本頁。
+        </p>
+        <div class="row">
+          <button id="btnSaveSettings" class="primary" value="save">儲存</button>
+          <button class="ghost" value="cancel">關閉</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
