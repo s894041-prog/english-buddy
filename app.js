@@ -11,21 +11,28 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const today = () => new Date().toLocaleDateString('sv'); // YYYY-MM-DD
 
+// 只取 gsk_ 開頭那段：防止貼到「GROQ_API_KEY=」、空白、換行、markdown 的 \_
+const cleanKey = (v) => {
+  const s = String(v || '').replace(/\\/g, '');
+  const m = s.match(/gsk_[A-Za-z0-9]+/);
+  return m ? m[0] : s.trim();
+};
+
 // 用 #key=gsk_xxx 一次性匯入 key（hash 不會送到伺服器），匯入後立刻從網址移除
 (() => {
   const m = location.hash.match(/key=([^&]+)/);
   if (m) {
-    localStorage.setItem('groq_key', decodeURIComponent(m[1]).trim());
+    localStorage.setItem('groq_key', cleanKey(decodeURIComponent(m[1])));
     history.replaceState(null, '', location.pathname + location.search);
   }
 })();
 
 const store = {
   get key() {
-    return localStorage.getItem('groq_key') || '';
+    return cleanKey(localStorage.getItem('groq_key'));
   },
   set key(v) {
-    localStorage.setItem('groq_key', v);
+    localStorage.setItem('groq_key', cleanKey(v));
   },
   json(k, def) {
     try {
@@ -160,6 +167,7 @@ async function transcribe(blob) {
     headers: { Authorization: 'Bearer ' + store.key },
     body: fd,
   });
+  if (r.status === 401) throw new Error(`Key 不對（401）。目前 iPad 存的是 ${store.key.slice(0, 8)}…（${store.key.length} 碼，正確應為 56 碼），請按 ⚙️ 重貼`);
   if (!r.ok) throw new Error('語音辨識失敗 ' + r.status + '：' + (await r.text()).slice(0, 120));
   return ((await r.json()).text || '').trim();
 }
@@ -679,7 +687,7 @@ $('#btnSettings').onclick = () => {
   $('#settings').showModal();
 };
 $('#btnTestKey').onclick = async () => {
-  const k = $('#inKey').value.replace(/\\/g, '').trim();
+  const k = cleanKey($('#inKey').value);
   $('#keyStatus').textContent = '測試中…';
   try {
     const r = await fetch(GROQ + '/models', { headers: { Authorization: 'Bearer ' + k } });
@@ -694,7 +702,7 @@ $('#btnTestVoice').onclick = () => {
 };
 $('#settings').addEventListener('close', () => {
   if ($('#settings').returnValue !== 'save') return;
-  store.key = $('#inKey').value.replace(/\\/g, '').trim();
+  store.key = $('#inKey').value;
   if ($('#inVoice').value) localStorage.setItem('voice', $('#inVoice').value);
   $('#keyWarn').classList.toggle('hidden', !!store.key);
 });
