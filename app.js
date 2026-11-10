@@ -152,8 +152,20 @@ async function ensureMic() {
   }
   return micStream;
 }
+function isAppleDevice() {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  );
+}
+
 function pickMime() {
-  for (const m of ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm', 'audio/ogg']) {
+  if (isAppleDevice()) {
+    // iOS/iPadOS Safari 唯一原生穩定錄音格式為 audio/mp4 (AAC)
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4';
+    return '';
+  }
+  for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']) {
     if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
   }
   return '';
@@ -162,23 +174,46 @@ async function startRec() {
   await ensureMic();
   chunks = [];
   const mime = pickMime();
-  recorder = new MediaRecorder(micStream, mime ? { mimeType: mime } : {});
-  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  recorder.start();
+  try {
+    recorder = new MediaRecorder(micStream, mime ? { mimeType: mime } : {});
+  } catch (e) {
+    recorder = new MediaRecorder(micStream);
+  }
+  recorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) chunks.push(e.data);
+  };
+  // 關鍵：每 150ms 輸出一個 slice，避免 iOS Safari 在 onstop 時 chunks 仍為空
+  recorder.start(150);
   recStart = Date.now();
 }
 function stopRec() {
   return new Promise((resolve) => {
     if (!recorder || recorder.state === 'inactive') return resolve(null);
     recorder.onstop = () => {
-      const type = recorder.mimeType || 'audio/mp4';
-      resolve({ blob: new Blob(chunks, { type }), ms: Date.now() - recStart });
+      const type = recorder.mimeType || (isAppleDevice() ? 'audio/mp4' : 'audio/webm');
+      const blob = new Blob(chunks, { type });
+      resolve({ blob, ms: Date.now() - recStart });
     };
+    try {
+      if (recorder.state === 'recording') {
+        recorder.requestData();
+      }
+    } catch (e) {}
     recorder.stop();
   });
 }
 async function transcribe(blob) {
-  const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+  if (!blob || blob.size < 200) {
+    throw new Error('沒錄到聲音（檔案過小），請按住麥克風說完再放開！');
+  }
+  let ext = 'webm';
+  if (blob.type.includes('mp4') || blob.type.includes('m4a') || blob.type.includes('aac')) {
+    ext = 'm4a';
+  } else if (blob.type.includes('ogg')) {
+    ext = 'ogg';
+  } else if (blob.type.includes('wav')) {
+    ext = 'wav';
+  }
   const fd = new FormData();
   fd.append('file', blob, 'speech.' + ext);
   fd.append('model', STT_MODEL);
@@ -190,8 +225,17 @@ async function transcribe(blob) {
     headers: { Authorization: 'Bearer ' + store.key },
     body: fd,
   });
-  if (r.status === 401) throw new Error(`Key 不對（401）。目前 iPad 存的是 ${store.key.slice(0, 8)}…（${store.key.length} 碼，正確應為 56 碼），請按 ⚙️ 重貼`);
-  if (!r.ok) throw new Error('語音辨識失敗 ' + r.status + '：' + (await r.text()).slice(0, 120));
+  if (r.status === 401) throw new Error('Key 不對（401）');
+  if (!r.ok) {
+    let detail = '';
+    try {
+      const j = await r.json();
+      detail = j.error?.message || '';
+    } catch {
+      detail = (await r.text()).slice(0, 100);
+    }
+    throw new Error(`語音辨識失敗 ${r.status}：${detail}`);
+  }
   return ((await r.json()).text || '').trim();
 }
 
@@ -560,7 +604,7 @@ function setMic(on, label) {
 
 async function handleSpeech(rec) {
   const q = cur();
-  if (!rec || rec.ms < 500) {
+  if (!rec || !rec.blob || rec.blob.size < 200 || rec.ms < 500) {
     say('Hold the button a little longer.', '要按住麥克風，說完再放開喔！');
     setMic(true);
     return;
