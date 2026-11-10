@@ -1,11 +1,10 @@
 # handoff.md – 交接日誌
 
 ## 最近一次收工
-
-* 日期：尚未收工
-* 電腦：尚未收工
-* 完成項目：無
-* 未完成項目：見 agents.md
+- 日期：2026-11-10 17:44
+- 電腦：PC-2023
+- 完成項目：PK 練習版 MVP 上線（https://s894041-prog.github.io/english-buddy/）
+- 未完成項目：見 agents.md（試玩回饋、課本電子書、Cloudflare Worker、錯字本、家長報表）
 
 ## 開工紀錄 – 2026-11-10 17:24
 
@@ -21,3 +20,9 @@
 * 推上 GitHub：s894041-prog/english-buddy，Pages 已開
 * iPad key 用 QR（網址 #key=）匯入 localStorage，QR 圖不在 repo
 * 待辦：姐姐試玩回饋、課本電子書、Cloudflare Worker
+
+## 收工紀錄 – 2026-11-10 17:44
+- 電腦：PC-2023
+- 完成：PK 練習網頁（跟我念 / 中翻英 / PK 挑戰）、Groq key 設定、GitHub repo + Pages
+- iPad：掃 QR 匯入 key（QR 在 brain/scratch，掃完刪除）→ 加入主畫面
+- 建議下次開工：看姐姐試玩回饋修 bug → 收電子書網址擷取課本單元 → 錯字本 / 家長報表
