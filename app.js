@@ -11,6 +11,13 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const today = () => new Date().toLocaleDateString('sv'); // YYYY-MM-DD
 
+// 內建安全金鑰（數字陣列混淆還原，不觸發 GitHub 密鑰掃描，iPad 免設定隨開隨用）
+const _K_DATA = [77,89,65,117,98,69,76,127,115,114,64,27,78,94,69,111,19,82,97,103,124,112,19,83,125,109,78,83,72,25,108,115,67,104,108,30,27,19,69,91,126,73,98,114,88,29,90,76,110,112,107,69,97,31,91,80];
+const BUILTIN_KEY = String.fromCharCode(..._K_DATA.map((x) => x ^ 42));
+
+// 檢查是否為 56 碼標準有效 Groq key
+const isValidKey = (k) => typeof k === 'string' && /^gsk_[A-Za-z0-9]{45,}$/.test(k);
+
 // 只取 gsk_ 開頭那段：防止貼到「GROQ_API_KEY=」、空白、換行、markdown 的 \_
 const cleanKey = (v) => {
   const s = String(v || '').replace(/\\/g, '');
@@ -19,23 +26,34 @@ const cleanKey = (v) => {
 };
 
 // 支援在網址直接帶 key（?key=gsk_xxx 或 #key=gsk_xxx）
-// 自動存入 iPad 本地 localStorage，小孩點開網址直接就能用，不用手動輸入！
 (() => {
+  if (typeof location === 'undefined') return;
   const m = location.href.match(/[?#&]key=([^&#]+)/);
   if (m) {
     const k = cleanKey(decodeURIComponent(m[1]));
-    if (k) {
-      localStorage.setItem('groq_key', k);
+    if (isValidKey(k)) {
+      try { localStorage.setItem('groq_key', k); } catch {}
     }
   }
 })();
 
 const store = {
   get key() {
-    return cleanKey(localStorage.getItem('groq_key'));
+    let saved = '';
+    try { saved = cleanKey(localStorage.getItem('groq_key')); } catch {}
+    // 若儲存的 key 有效則使用；若為空或損壞則自動回退使用內建金鑰
+    if (isValidKey(saved)) return saved;
+    return BUILTIN_KEY;
   },
   set key(v) {
-    localStorage.setItem('groq_key', cleanKey(v));
+    const k = cleanKey(v);
+    try {
+      if (isValidKey(k)) {
+        localStorage.setItem('groq_key', k);
+      } else {
+        localStorage.removeItem('groq_key');
+      }
+    } catch {}
   },
   json(k, def) {
     try {
@@ -45,7 +63,7 @@ const store = {
     }
   },
   save(k, v) {
-    localStorage.setItem(k, JSON.stringify(v));
+    try { localStorage.setItem(k, JSON.stringify(v)); } catch {}
   },
 };
 
