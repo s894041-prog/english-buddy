@@ -63,8 +63,8 @@
 - [ ] 按住說話錄音 → Groq Whisper 轉文字
 - [ ] 跟讀逐字比對 + 錯字標紅 + 請她重念
 - [ ] Groq LLM 對話 / 糾錯 / 中文翻譯（JSON 輸出）
-- [ ] Cloudflare Worker 中繼保護 API key
-- [ ] 填入一個課本單元 + 本週一句做測試
+- [ ] Cloudflare Worker 中繼保護 API key（暫時方案：key 存在 iPad localStorage，用 QR #key= 匯入，不進 repo）
+- [x] 每周一句 1~9 + PK 模式（課本單元待電子書）
 - [ ] 讓姐姐試玩，收集回饋
 
 ### Phase 2 – 增強
@@ -72,7 +72,7 @@
 - [ ] 錯字本 + 間隔重複
 - [ ] 星星獎勵
 - [ ] 家長報表
-- [ ] 部署 GitHub Pages
+- [x] 部署 GitHub Pages：https://s894041-prog.github.io/english-buddy/
 
 ### Phase 3 – 進階
 - [ ] Azure Pronunciation Assessment 音素級發音評分
