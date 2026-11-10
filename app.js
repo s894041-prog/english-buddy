@@ -49,6 +49,8 @@ const store = {
 let DATA = null;
 let profile = null;
 let selected = new Set();
+let currentScope = 'weekly'; // 'weekly' 或 'textbook'
+let selectedUnitId = '';
 
 /* ================= 語音合成 TTS ================= */
 let voices = [];
@@ -288,6 +290,10 @@ function renderProfiles() {
     b.onclick = () => {
       setProfile(p.id);
       renderProfiles();
+      updateUnitSelector();
+      const saved = store.json('sel_' + currentScope + '_' + profile.id, null);
+      if (saved?.length) selected = new Set(saved);
+      else pickPreset(currentScope === 'weekly' ? 'pk' : 'all');
       renderChips();
     };
     box.appendChild(b);
@@ -303,33 +309,78 @@ function setProfile(id) {
 function stats() {
   return store.json('stats_' + profile.id, {});
 }
+
+function getActiveList() {
+  if (currentScope === 'weekly') {
+    return DATA.weekly.map((s) => ({ ...s, uid: 'w_' + s.no }));
+  }
+  const tb = DATA.textbook?.[profile.id];
+  if (!tb || !tb.units || !tb.units.length) return [];
+  const u = tb.units.find((x) => x.id === selectedUnitId) || tb.units[0];
+  return (u.sentences || []).map((s, idx) => ({
+    ...s,
+    no: idx + 1,
+    uid: `${u.id}_${idx + 1}`,
+  }));
+}
+
+function updateUnitSelector() {
+  const row = $('#unitSelectorRow');
+  const sel = $('#selUnit');
+  if (currentScope !== 'textbook') {
+    row.classList.add('hidden');
+    return;
+  }
+  row.classList.remove('hidden');
+  const tb = DATA.textbook?.[profile.id];
+  if (!tb || !tb.units) return;
+  sel.innerHTML = tb.units
+    .map((u) => `<option value="${u.id}" ${u.id === selectedUnitId ? 'selected' : ''}>${u.title}</option>`)
+    .join('');
+  if (!selectedUnitId || !tb.units.some((u) => u.id === selectedUnitId)) {
+    selectedUnitId = tb.units[0]?.id || '';
+  }
+}
+
 function renderChips() {
   const box = $('#chips');
   box.innerHTML = '';
   const st = stats();
-  DATA.weekly.forEach((s) => {
+  const list = getActiveList();
+  list.forEach((s) => {
     const b = document.createElement('button');
-    b.className = 'chip' + (selected.has(s.no) ? ' on' : '');
-    const r = st[s.no];
+    const isSel = selected.has(s.uid);
+    b.className = 'chip' + (isSel ? ' on' : '');
+    const r = st[s.uid];
     const badge = !r ? '' : r.lastFirstTry ? '⭐' : '⚠️';
     b.innerHTML = `<i>${badge}</i><b>${s.no}. ${s.en}</b><span>${s.zh}</span>`;
     b.onclick = () => {
-      selected.has(s.no) ? selected.delete(s.no) : selected.add(s.no);
-      store.save('sel', [...selected]);
+      selected.has(s.uid) ? selected.delete(s.uid) : selected.add(s.uid);
+      store.save('sel_' + currentScope + '_' + profile.id, [...selected]);
       renderChips();
     };
     box.appendChild(b);
   });
 }
+
 function pickPreset(kind) {
-  const all = DATA.weekly.map((s) => s.no);
-  if (kind === 'all') selected = new Set(all);
-  if (kind === 'current') selected = new Set(DATA.currentWeekly);
-  if (kind === 'pk') {
-    const [a, b] = DATA.pk.range;
-    selected = new Set(all.filter((n) => n >= a && n <= b));
+  if (currentScope === 'weekly') {
+    const all = DATA.weekly.map((s) => 'w_' + s.no);
+    if (kind === 'all') selected = new Set(all);
+    if (kind === 'current') selected = new Set(DATA.currentWeekly.map((n) => 'w_' + n));
+    if (kind === 'pk') {
+      const [a, b] = DATA.pk.range;
+      selected = new Set(all.filter((uid) => {
+        const n = parseInt(uid.replace('w_', ''));
+        return n >= a && n <= b;
+      }));
+    }
+  } else {
+    // 課本單元預設全選或切換
+    const list = getActiveList();
+    selected = new Set(list.map((s) => s.uid));
   }
-  store.save('sel', [...selected]);
+  store.save('sel_' + currentScope + '_' + profile.id, [...selected]);
   renderChips();
 }
 
@@ -374,7 +425,8 @@ async function startSession(mode, list) {
     alert('請先按右上角 ⚙️ 設定 Groq Key');
     return;
   }
-  const items = list || DATA.weekly.filter((s) => selected.has(s.no));
+  const allCurrent = getActiveList();
+  const items = list || allCurrent.filter((s) => selected.has(s.uid));
   if (!items.length) {
     alert('請至少選一句');
     return;
@@ -550,12 +602,13 @@ function record(q, pass) {
   const pts = !pass ? 0 : Math.round((firstTry ? 10 : 5) * (inTime ? 1 : 0.5));
   S.results.push({ q, pass, tries: S.tries, firstTry, pts });
   const st = stats();
-  const r = st[q.no] || { tries: 0, pass: 0 };
+  const idKey = q.uid || q.no;
+  const r = st[idKey] || { tries: 0, pass: 0 };
   r.tries += S.tries;
   r.pass += pass ? 1 : 0;
   r.lastFirstTry = firstTry;
   r.last = today();
-  st[q.no] = r;
+  st[idKey] = r;
   store.save('stats_' + profile.id, st);
 }
 
@@ -670,6 +723,35 @@ $('#btnRetryWrong').onclick = () =>
 $$('.mode').forEach((b) => (b.onclick = () => startSession(b.dataset.mode)));
 $$('[data-pick]').forEach((b) => (b.onclick = () => pickPreset(b.dataset.pick)));
 
+$('#tabWeekly').onclick = () => {
+  currentScope = 'weekly';
+  $('#tabWeekly').className = 'primary';
+  $('#tabTextbook').className = 'ghost';
+  $('#pickPresets').classList.remove('hidden');
+  updateUnitSelector();
+  const saved = store.json('sel_weekly_' + profile.id, null);
+  if (saved?.length) selected = new Set(saved);
+  else pickPreset('pk');
+  renderChips();
+};
+
+$('#tabTextbook').onclick = () => {
+  currentScope = 'textbook';
+  $('#tabTextbook').className = 'primary';
+  $('#tabWeekly').className = 'ghost';
+  $('#pickPresets').classList.add('hidden');
+  updateUnitSelector();
+  const saved = store.json('sel_textbook_' + profile.id, null);
+  if (saved?.length) selected = new Set(saved);
+  else pickPreset('all');
+  renderChips();
+};
+
+$('#selUnit').onchange = (e) => {
+  selectedUnitId = e.target.value;
+  pickPreset('all');
+};
+
 /* ================= 設定 ================= */
 function fillVoiceSelect() {
   const sel = $('#inVoice');
@@ -711,7 +793,8 @@ $('#settings').addEventListener('close', () => {
 (async function init() {
   DATA = await (await fetch('lessons.json', { cache: 'no-cache' })).json();
   setProfile(localStorage.getItem('profile') || DATA.profiles[0].id);
-  const saved = store.json('sel', null);
+  updateUnitSelector();
+  const saved = store.json('sel_weekly_' + profile.id, null);
   if (saved?.length) selected = new Set(saved);
   else pickPreset(DATA.pk && DATA.pk.date >= today() ? 'pk' : 'current');
   renderProfiles();

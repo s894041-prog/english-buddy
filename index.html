@@ -24,9 +24,19 @@
       <h2>誰要練習？</h2>
       <div id="profiles" class="row"></div>
 
+      <h2>練習範圍</h2>
+      <div class="row" style="margin-bottom: 12px;">
+        <button id="tabWeekly" class="primary" style="padding: 8px 16px;">每週一句</button>
+        <button id="tabTextbook" class="ghost" style="padding: 8px 16px;">課本單元</button>
+      </div>
+      <div id="unitSelectorRow" class="row small hidden" style="margin-bottom: 10px;">
+        <span style="font-weight: bold; color: var(--sub);">選擇單元：</span>
+        <select id="selUnit" style="padding: 6px 10px; border-radius: 8px; border: 1px solid #ccd5ea;"></select>
+      </div>
+
       <h2>選句子 <small>（點一下切換）</small></h2>
       <div id="chips" class="chips"></div>
-      <div class="row small">
+      <div id="pickPresets" class="row small">
         <button class="ghost" data-pick="pk">PK 範圍</button>
         <button class="ghost" data-pick="current">本週</button>
         <button class="ghost" data-pick="all">全選</button>
@@ -142,6 +152,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=2"></script>
+    <script src="app.js?v=3"></script>
   </body>
 </html>

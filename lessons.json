@@ -17,7 +17,158 @@
   "currentWeekly": [7, 8, 9],
   "pk": { "date": "2026-11-11", "range": [1, 6] },
   "textbook": {
-    "jiejie": { "publisher": "TBD", "units": [] },
-    "meimei": { "publisher": "TBD", "units": [] }
+    "meimei": {
+      "book": "康軒國小英語 Wonder World 1 (三年級上學期 115上)",
+      "units": [
+        {
+          "id": "m_u0",
+          "title": "Get Ready 暖身與問候",
+          "sentences": [
+            { "en": "What's your name?", "zh": "你叫什麼名字？" },
+            { "en": "My name is Kevin.", "zh": "我的名字是凱文。" },
+            { "en": "Good morning.", "zh": "早安。" },
+            { "en": "Good afternoon.", "zh": "午安。" },
+            { "en": "Stand up.", "zh": "起立。" },
+            { "en": "Sit down.", "zh": "坐下。" },
+            { "en": "Fine, thank you.", "zh": "很好，謝謝你。" }
+          ]
+        },
+        {
+          "id": "m_u1",
+          "title": "Unit 1 生日派對 (年齡與數字)",
+          "sentences": [
+            { "en": "How old are you?", "zh": "你幾歲？" },
+            { "en": "I'm nine years old.", "zh": "我九歲。" },
+            { "en": "Happy birthday!", "zh": "生日快樂！" },
+            { "en": "This is for you.", "zh": "這個是給你的。" },
+            { "en": "You're welcome.", "zh": "不客氣。" },
+            { "en": "Thank you.", "zh": "謝謝你。" }
+          ]
+        },
+        {
+          "id": "m_u2",
+          "title": "Unit 2 可憐的凱文 (感覺與情緒)",
+          "sentences": [
+            { "en": "Are you hungry?", "zh": "你肚子餓嗎？" },
+            { "en": "Yes, I am.", "zh": "是的，我肚子餓。" },
+            { "en": "No, I'm not.", "zh": "不，我不餓。" },
+            { "en": "Are you OK?", "zh": "你還好嗎？" },
+            { "en": "I'm hungry and thirsty.", "zh": "我又餓又渴。" },
+            { "en": "Here you are.", "zh": "拿去吧，給你。" }
+          ]
+        },
+        {
+          "id": "m_u3",
+          "title": "Unit 3 玩具店 (遠近物品與玩具)",
+          "sentences": [
+            { "en": "What's this?", "zh": "這是什麼？" },
+            { "en": "What's that?", "zh": "那是什麼？" },
+            { "en": "It's a kite.", "zh": "它是一個風箏。" },
+            { "en": "It's a ball.", "zh": "它是一顆球。" },
+            { "en": "It's a robot.", "zh": "它是一個機器人。" },
+            { "en": "Come here.", "zh": "過來這裡。" },
+            { "en": "Oops, I'm sorry.", "zh": "哎呀，對不起。" }
+          ]
+        },
+        {
+          "id": "m_u4",
+          "title": "Unit 4 小龍的玩具 (顏色問答)",
+          "sentences": [
+            { "en": "What color is it?", "zh": "它是什麼顏色？" },
+            { "en": "It's red.", "zh": "它是紅色的。" },
+            { "en": "It's a purple kite.", "zh": "它是一個紫色的風箏。" },
+            { "en": "It's a green robot.", "zh": "它是一個綠色的機器人。" },
+            { "en": "Try again.", "zh": "再試一次。" },
+            { "en": "Good job!", "zh": "做得好！" }
+          ]
+        },
+        {
+          "id": "m_fes",
+          "title": "Festivals 聖誕節",
+          "sentences": [
+            { "en": "Merry Christmas!", "zh": "聖誕快樂！" },
+            { "en": "Look at the Christmas tree.", "zh": "看那棵聖誕樹。" }
+          ]
+        }
+      ]
+    },
+    "jiejie": {
+      "book": "康軒國小英語 Wonder World 5 (五年級上學期 115上)",
+      "units": [
+        {
+          "id": "j_u0",
+          "title": "Get Ready 健康生活好習慣",
+          "sentences": [
+            { "en": "I wash my hands with soap.", "zh": "我用肥皂洗手。" },
+            { "en": "I cover my mouth and nose when I sneeze.", "zh": "打噴嚏時我會摀住口鼻。" },
+            { "en": "I brush my teeth after each meal.", "zh": "每餐飯後我會刷牙。" }
+          ]
+        },
+        {
+          "id": "j_u1",
+          "title": "Unit 1 最棒的飲料 (喜好問答)",
+          "sentences": [
+            { "en": "Do you like cola?", "zh": "你喜歡可樂嗎？" },
+            { "en": "Yes, I do.", "zh": "是的，我喜歡。" },
+            { "en": "No, I don't. I like soy milk.", "zh": "不，我不喜歡。我喜歡豆漿。" },
+            { "en": "Does he like tea?", "zh": "他喜歡茶嗎？" },
+            { "en": "Yes, he does.", "zh": "是的，他喜歡。" },
+            { "en": "Does she like coffee?", "zh": "她喜歡咖啡嗎？" },
+            { "en": "No, she doesn't. She likes bubble tea.", "zh": "不，她不喜歡。她喜歡珍珠奶茶。" },
+            { "en": "Drink some water. Water is the best.", "zh": "喝點水吧。水是最棒的飲料。" },
+            { "en": "I'm still thirsty.", "zh": "我還是好渴。" }
+          ]
+        },
+        {
+          "id": "j_u2",
+          "title": "Unit 2 做水果沙拉吧 (數量問答)",
+          "sentences": [
+            { "en": "How many apples do you need?", "zh": "你需要幾顆蘋果？" },
+            { "en": "I need two apples.", "zh": "我需要兩顆蘋果。" },
+            { "en": "How many oranges does he need?", "zh": "他需要幾顆橘子？" },
+            { "en": "He needs seven oranges.", "zh": "他需要七顆橘子。" },
+            { "en": "How many bananas does she need?", "zh": "她需要幾根香蕉？" },
+            { "en": "She needs three bananas.", "zh": "她需要三根香蕉。" },
+            { "en": "Save the peel. We can make orange peel cleaner.", "zh": "留著果皮，我們可以做橘皮清潔劑。" },
+            { "en": "Phew, that was close!", "zh": "呼，好險！差點就危險了！" }
+          ]
+        },
+        {
+          "id": "j_u3",
+          "title": "Unit 3 好玩的一天 (星期與日常)",
+          "sentences": [
+            { "en": "What day is today?", "zh": "今天星期幾？" },
+            { "en": "It's Sunday.", "zh": "今天是星期日。" },
+            { "en": "Is it Monday today?", "zh": "今天是星期一嗎？" },
+            { "en": "Yes, it is.", "zh": "是的，今天是。" },
+            { "en": "No, it isn't. It's Tuesday.", "zh": "不，今天不是。今天是星期二。" },
+            { "en": "The zoo is closed today.", "zh": "動物園今天休館沒開。" },
+            { "en": "We can have a good time, rain or shine.", "zh": "無論晴天或雨天，我們都可以玩得很開心。" }
+          ]
+        },
+        {
+          "id": "j_u4",
+          "title": "Unit 4 我最喜歡的科目 (學科與志向)",
+          "sentences": [
+            { "en": "What's your favorite subject?", "zh": "你最喜歡的科目是什麼？" },
+            { "en": "My favorite subject is English.", "zh": "我最喜歡的科目是英語。" },
+            { "en": "What's his favorite subject?", "zh": "他最喜歡的科目是什麼？" },
+            { "en": "His favorite subject is science.", "zh": "他最喜歡的科目是自然科學。" },
+            { "en": "What's her favorite subject?", "zh": "她最喜歡的科目是什麼？" },
+            { "en": "Her favorite subject is art.", "zh": "她最喜歡的科目是美術。" },
+            { "en": "You have PE class on Tuesday.", "zh": "你星期二有體育課。" },
+            { "en": "I want to help people stay healthy.", "zh": "我想幫助大家保持健康。" }
+          ]
+        },
+        {
+          "id": "j_fes",
+          "title": "Festivals 農曆新年",
+          "sentences": [
+            { "en": "Let's put up the spring couplets.", "zh": "我們來貼春聯吧。" },
+            { "en": "We have rice cake for good luck.", "zh": "我們吃年糕討個好彩頭。" }
+          ]
+        }
+      ]
+    }
   }
 }
