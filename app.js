@@ -138,88 +138,133 @@ function stopSpeaking() {
   setRobot('');
 }
 
-/* ================= 錄音 + Whisper ================= */
+/* ================= 錄音（Web Audio 16kHz WAV 原生錄音，全平台極限相容） ================= */
+let audioCtx = null;
 let micStream = null;
-let recorder = null;
-let chunks = [];
-let recStart = 0;
+let scriptProcessor = null;
+let sourceNode = null;
+let pcmSamples = [];
+let recStartTime = 0;
+let isRecording = false;
 
-async function ensureMic() {
-  if (!micStream) {
-    micStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true },
-    });
-  }
-  return micStream;
-}
-function isAppleDevice() {
-  return (
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-  );
-}
-
-function pickMime() {
-  if (isAppleDevice()) {
-    // iOS/iPadOS Safari 唯一原生穩定錄音格式為 audio/mp4 (AAC)
-    if (window.MediaRecorder && MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4';
-    return '';
-  }
-  for (const m of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']) {
-    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
-  }
-  return '';
-}
-async function startRec() {
-  await ensureMic();
-  chunks = [];
-  const mime = pickMime();
-  try {
-    recorder = new MediaRecorder(micStream, mime ? { mimeType: mime } : {});
-  } catch (e) {
-    recorder = new MediaRecorder(micStream);
-  }
-  recorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) chunks.push(e.data);
+function encodeWAV(samples, sampleRate = 16000) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeString = (offset, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
   };
-  // 關鍵：每 150ms 輸出一個 slice，避免 iOS Safari 在 onstop 時 chunks 仍為空
-  recorder.start(150);
-  recStart = Date.now();
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // 單聲道
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byteRate
+  view.setUint16(32, 2, true); // blockAlign
+  view.setUint16(34, 16, true); // 16 bits
+  writeString(36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return buffer;
 }
-function stopRec() {
-  return new Promise((resolve) => {
-    if (!recorder || recorder.state === 'inactive') return resolve(null);
-    recorder.onstop = () => {
-      const type = recorder.mimeType || (isAppleDevice() ? 'audio/mp4' : 'audio/webm');
-      const blob = new Blob(chunks, { type });
-      resolve({ blob, ms: Date.now() - recStart });
-    };
-    try {
-      if (recorder.state === 'recording') {
-        recorder.requestData();
-      }
-    } catch (e) {}
-    recorder.stop();
+
+function releaseMic() {
+  if (sourceNode) {
+    try { sourceNode.disconnect(); } catch {}
+    sourceNode = null;
+  }
+  if (scriptProcessor) {
+    try { scriptProcessor.disconnect(); } catch {}
+    scriptProcessor = null;
+  }
+  if (micStream) {
+    try { micStream.getTracks().forEach((t) => t.stop()); } catch {}
+    micStream = null;
+  }
+}
+
+async function startRec() {
+  releaseMic();
+  stopSpeaking();
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!audioCtx || audioCtx.state === 'closed') {
+    audioCtx = new AudioContextClass();
+  }
+  if (audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
+
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
   });
+
+  sourceNode = audioCtx.createMediaStreamSource(micStream);
+  scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+  pcmSamples = [];
+  recStartTime = Date.now();
+  isRecording = true;
+
+  const currentRate = audioCtx.sampleRate;
+  const ratio = currentRate / 16000;
+
+  scriptProcessor.onaudioprocess = (e) => {
+    if (!isRecording) return;
+    const input = e.inputBuffer.getChannelData(0);
+    // 即時下採樣到 16kHz
+    for (let i = 0; i < input.length; i += ratio) {
+      pcmSamples.push(input[Math.floor(i)]);
+    }
+  };
+
+  sourceNode.connect(scriptProcessor);
+  scriptProcessor.connect(audioCtx.destination);
 }
+
+async function stopRec() {
+  if (!isRecording) return null;
+  isRecording = false;
+  const durationMs = Date.now() - recStartTime;
+
+  releaseMic();
+
+  if (!pcmSamples || pcmSamples.length === 0) {
+    return { blob: null, ms: durationMs, maxVol: 0 };
+  }
+
+  let maxVol = 0;
+  for (let i = 0; i < pcmSamples.length; i++) {
+    const v = Math.abs(pcmSamples[i]);
+    if (v > maxVol) maxVol = v;
+  }
+
+  const wavBuf = encodeWAV(pcmSamples, 16000);
+  const blob = new Blob([wavBuf], { type: 'audio/wav' });
+  return { blob, ms: durationMs, maxVol };
+}
+
 async function transcribe(blob) {
   if (!blob || blob.size < 200) {
-    throw new Error('沒錄到聲音（檔案過小），請按住麥克風說完再放開！');
-  }
-  let ext = 'webm';
-  if (blob.type.includes('mp4') || blob.type.includes('m4a') || blob.type.includes('aac')) {
-    ext = 'm4a';
-  } else if (blob.type.includes('ogg')) {
-    ext = 'ogg';
-  } else if (blob.type.includes('wav')) {
-    ext = 'wav';
+    throw new Error('沒錄到聲音，請再說一次喔！');
   }
   const fd = new FormData();
-  fd.append('file', blob, 'speech.' + ext);
+  fd.append('file', blob, 'speech.wav');
   fd.append('model', STT_MODEL);
   fd.append('language', 'en');
   fd.append('temperature', '0');
   fd.append('response_format', 'json');
+
   const r = await fetch(GROQ + '/audio/transcriptions', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + store.key },
@@ -496,10 +541,11 @@ async function startSession(mode, list) {
     alert('請至少選一句');
     return;
   }
-  // iOS：必須在點擊當下解鎖語音與麥克風
+  // iOS：必須在點擊當下解鎖語音與麥克風權限
   speechSynthesis.speak(new SpeechSynthesisUtterance(''));
   try {
-    await ensureMic();
+    const testMic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    testMic.getTracks().forEach((t) => t.stop());
   } catch (e) {
     alert('需要麥克風權限才能練習喔！\n' + e.message);
     return;
@@ -604,8 +650,13 @@ function setMic(on, label) {
 
 async function handleSpeech(rec) {
   const q = cur();
-  if (!rec || !rec.blob || rec.blob.size < 200 || rec.ms < 500) {
-    say('Hold the button a little longer.', '要按住麥克風，說完再放開喔！');
+  if (!rec || !rec.blob || rec.ms < 400) {
+    say('Hold the button a little longer.', '說得太快囉，請多說一點再放開！');
+    setMic(true);
+    return;
+  }
+  if (rec.maxVol < 0.006) {
+    say('Did not catch your voice.', '沒有收到聲音耶！請靠近麥克風、大聲一點再說一次喔！');
     setMic(true);
     return;
   }
@@ -713,41 +764,75 @@ async function finish() {
   speak(stars === 3 ? 'Awesome! You are a star!' : 'Good work! Keep practicing!');
 }
 
-/* ================= 麥克風按鈕（按住說話） ================= */
+/* ================= 麥克風按鈕（支援：按住說話 OR 點一下開/關） ================= */
 const mic = $('#mic');
-let holding = false;
-mic.addEventListener('pointerdown', async (e) => {
-  if (mic.disabled) return;
-  e.preventDefault();
-  mic.setPointerCapture(e.pointerId);
-  holding = true;
+let isPressing = false;
+let pressStartTime = 0;
+let toggleModeActive = false;
+
+async function doStartRec() {
   stopSpeaking();
   try {
     await startRec();
   } catch (err) {
-    holding = false;
     alert('麥克風無法使用：' + err.message);
-    return;
+    return false;
   }
-  if (!holding) return endHold(); // 太快放開
   mic.classList.add('rec');
   setRobot('listening');
-  $('#micLabel').textContent = '說完放開';
-});
-async function endHold() {
-  if (!recorder || recorder.state === 'inactive') return;
-  holding = false;
+  $('#micLabel').textContent = '說完放開 / 點一下送出';
+  return true;
+}
+
+async function doStopRec() {
   mic.classList.remove('rec');
   setRobot('');
-  handleSpeech(await stopRec());
+  setMic(false, '聽聽看…');
+  const result = await stopRec();
+  handleSpeech(result);
 }
-mic.addEventListener('pointerup', () => {
-  holding = false;
-  endHold();
+
+mic.addEventListener('pointerdown', async (e) => {
+  if (mic.disabled) return;
+  e.preventDefault();
+  mic.setPointerCapture(e.pointerId);
+
+  // 如果目前處於點擊模式中，再次點擊代表結束送出
+  if (toggleModeActive) {
+    toggleModeActive = false;
+    isPressing = false;
+    await doStopRec();
+    return;
+  }
+
+  isPressing = true;
+  pressStartTime = Date.now();
+  const ok = await doStartRec();
+  if (!ok) isPressing = false;
 });
-mic.addEventListener('pointercancel', () => {
-  holding = false;
-  endHold();
+
+mic.addEventListener('pointerup', async () => {
+  if (!isPressing) return;
+  const elapsed = Date.now() - pressStartTime;
+  isPressing = false;
+
+  // 若按壓時間小於 450ms，自動切換為「點擊模式」，繼續錄音讓小孩悠閒說話
+  if (elapsed < 450) {
+    toggleModeActive = true;
+    $('#micLabel').textContent = '點一下送出';
+    return;
+  }
+
+  // 若是長按超過 450ms，則放開時直接送出（長按對講機模式）
+  toggleModeActive = false;
+  await doStopRec();
+});
+
+mic.addEventListener('pointercancel', async () => {
+  if (isPressing && !toggleModeActive) {
+    isPressing = false;
+    await doStopRec();
+  }
 });
 mic.addEventListener('contextmenu', (e) => e.preventDefault());
 
