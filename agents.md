@@ -57,12 +57,12 @@
 
 ## 任務清單 (TODO)
 ### Phase 1 – MVP
-- [ ] 建立專案結構（`index.html`、`lessons.json`、`worker/`）
-- [ ] SVG 機器人 + 說話嘴型動畫
-- [ ] TTS 朗讀 + 中英字幕顯示
-- [ ] 按住說話錄音 → Groq Whisper 轉文字
-- [ ] 跟讀逐字比對 + 錯字標紅 + 請她重念
-- [ ] Groq LLM 對話 / 糾錯 / 中文翻譯（JSON 輸出）
+- [x] 建立專案結構（`index.html`、`lessons.json`、`worker/`）
+- [x] SVG 機器人 + 說話嘴型動畫
+- [x] TTS 朗讀 + 中英字幕顯示
+- [x] 按住說話錄音 → Groq Whisper 轉文字
+- [x] 跟讀逐字比對 + 錯字標紅 + 請她重念
+- [x] Groq LLM 對話 / 糾錯 / 中文翻譯（JSON 輸出）
 - [ ] Cloudflare Worker 中繼保護 API key（暫時方案：key 存在 iPad localStorage，用 QR #key= 匯入，不進 repo）
 - [x] 每周一句 1~9 + PK 模式（課本單元待電子書）
 - [ ] 讓姐姐試玩，收集回饋
