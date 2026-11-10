@@ -18,12 +18,15 @@ const cleanKey = (v) => {
   return m ? m[0] : s.trim();
 };
 
-// 用 #key=gsk_xxx 一次性匯入 key（hash 不會送到伺服器），匯入後立刻從網址移除
+// 支援在網址直接帶 key（?key=gsk_xxx 或 #key=gsk_xxx）
+// 自動存入 iPad 本地 localStorage，小孩點開網址直接就能用，不用手動輸入！
 (() => {
-  const m = location.hash.match(/key=([^&]+)/);
+  const m = location.href.match(/[?#&]key=([^&#]+)/);
   if (m) {
-    localStorage.setItem('groq_key', cleanKey(decodeURIComponent(m[1])));
-    history.replaceState(null, '', location.pathname + location.search);
+    const k = cleanKey(decodeURIComponent(m[1]));
+    if (k) {
+      localStorage.setItem('groq_key', k);
+    }
   }
 })();
 
