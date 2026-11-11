@@ -15,7 +15,7 @@
     { "no": 9, "en": "Do the right thing.", "zh": "要做對的事" }
   ],
   "currentWeekly": [7, 8, 9],
-  "pk": { "date": "2026-11-11", "range": [1, 6] },
+  "pk": { "date": "2026-11-11", "range": [1, 9] },
   "textbook": {
     "meimei": {
       "book": "康軒國小英語 Wonder World 1 (三年級上學期 115上)",
